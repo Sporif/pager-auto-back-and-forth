@@ -1,0 +1,23 @@
+{
+    "KPackageStructure": "Plasma/Applet",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Email": "github@mail.sporif.com",
+                "Name": "Sporif"
+            }
+        ],
+        "Category": "Windows and Tasks",
+        "Description": "Switch between virtual desktops, with an option for automatic back-and-forth when clicking on the current workspace",
+        "Icon": "user-desktop",
+        "Id": "com.github.sporif.plasma.pager-auto-back-and-forth",
+        "License": "GPL-2.0+",
+        "Name": "Pager (with auto back-and-forth)",
+        "Version": "1",
+        "Website": "https://userbase.kde.org/Plasma/Pager"
+    },
+    "X-Plasma-API-Minimum-Version": "6.0",
+    "X-Plasma-Provides": [
+        "org.kde.plasma.virtualdesktops"
+    ]
+}
