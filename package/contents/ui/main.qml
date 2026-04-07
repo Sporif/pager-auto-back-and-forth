@@ -5,17 +5,18 @@
 
     SPDX-License-Identifier: GPL-2.0-or-later
 */
+pragma ComponentBehavior: Bound
 
-import QtQuick 2.15
-import QtQuick.Layouts 1.1
-import org.kde.plasma.plasmoid 2.0
+import QtQuick
+import QtQuick.Layouts
+import org.kde.plasma.plasmoid
 import org.kde.plasma.core as PlasmaCore
-import org.kde.ksvg 1.0 as KSvg
-import org.kde.plasma.components 3.0 as PlasmaComponents3
-import org.kde.draganddrop 2.0 as DnD
-import org.kde.plasma.private.pager 2.0
+import org.kde.ksvg as KSvg
+import org.kde.plasma.components as PlasmaComponents3
+import org.kde.draganddrop as DnD
+import com.sporif.pager
 import org.kde.plasma.activityswitcher as ActivitySwitcher
-import org.kde.kirigami 2.20 as Kirigami
+import org.kde.kirigami as Kirigami
 
 import org.kde.kcmutils as KCM
 import org.kde.config as KConfig
@@ -41,6 +42,8 @@ PlasmoidItem {
 
     Layout.fillWidth: root.vertical
     Layout.fillHeight: !root.vertical
+
+    property int prevDesktop: -1
 
     property bool dragging: false
     property string dragId
@@ -83,7 +86,7 @@ PlasmoidItem {
             + "</li></ul>";
 
         if (windows.length > maximum) {
-            text += i18np("…and %1 other window", "…and %1 other windows", windows.length - maximum)
+            text += i18ncp("@info:tooltip overflow label", "…and %1 other window", "…and %1 other windows", windows.length - maximum) // qmllint disable unqualified
         }
 
         return text
@@ -96,29 +99,20 @@ PlasmoidItem {
         acceptedButtons: Qt.NoButton
         hoverEnabled: true
 
-        onContainsMouseChanged: {
-            if (!containsMouse && dragging) {
-                // Somewhat heavy-handed way to clean up after a window delegate drag
-                // exits the window.
-                pagerModel.refresh();
-                dragging = false;
-            }
-        }
-
         onWheel: wheel => {
             // Magic number 120 for common "one click, see:
             // https://doc.qt.io/qt-5/qml-qtquick-wheelevent.html#angleDelta-prop
-            wheelDelta += wheel.angleDelta.y || wheel.angleDelta.x;
+            root.wheelDelta += wheel.angleDelta.y || wheel.angleDelta.x;
 
             let increment = 0;
 
-            while (wheelDelta >= 120) {
-                wheelDelta -= 120;
+            while (root.wheelDelta >= 120) {
+                root.wheelDelta -= 120;
                 increment++;
             }
 
-            while (wheelDelta <= -120) {
-                wheelDelta += 120;
+            while (root.wheelDelta <= -120) {
+                root.wheelDelta += 120;
                 increment--;
             }
 
@@ -136,7 +130,7 @@ PlasmoidItem {
                 }
 
                 increment += (increment < 0) ? 1 : -1;
-                wheelDelta = 0;
+                root.wheelDelta = 0;
             }
         }
     }
@@ -151,7 +145,7 @@ PlasmoidItem {
         showOnlyCurrentScreen: Plasmoid.configuration.showOnlyCurrentScreen
         screenGeometry: Plasmoid.containment.screenGeometry
 
-        pagerType: isActivityPager ? PagerModel.Activities : PagerModel.VirtualDesktops
+        pagerType: root.isActivityPager ? PagerModel.Activities : PagerModel.VirtualDesktops
     }
 
     Connections {
@@ -177,7 +171,7 @@ PlasmoidItem {
 
         PlasmaComponents3.Label {
             required property int index
-            required property var model
+            required property string display
             required property KSvg.FrameSvgItem desktopFrame
 
             anchors {
@@ -188,7 +182,7 @@ PlasmoidItem {
                 bottomMargin: desktopFrame.margins.bottom
             }
 
-            text: Plasmoid.configuration.displayedText ? model.display : index + 1
+            text: Plasmoid.configuration.displayedText ? display : index + 1
             textFormat: Text.PlainText
 
             wrapMode: Text.NoWrap
@@ -218,9 +212,9 @@ PlasmoidItem {
                             Math.max(parent.width - (Kirigami.Units.smallSpacing * 2),
                                      Kirigami.Units.smallSpacing * 2))
 
-            property var model: null
+            required property var decoration//: null
 
-            source: model ? model.decoration : undefined
+            source: decoration ?? undefined
             roundToIconSize: false
             animated: false
         }
@@ -246,8 +240,8 @@ PlasmoidItem {
 
         anchors.centerIn: parent
         spacing: 1
-        rows: effectiveRows
-        columns: effectiveColumns
+        rows: effectiveRows * effectiveColumns >= pagerModel.count ? effectiveRows : pagerModel.count
+        columns: effectiveRows * effectiveColumns >= pagerModel.count ? effectiveColumns : pagerModel.count
 
         z: 1
 
@@ -258,7 +252,7 @@ PlasmoidItem {
 
             let rows = 1;
 
-            if (isActivityPager && Plasmoid.configuration.pagerLayout !== 0 /*No Default*/) {
+            if (root.isActivityPager && Plasmoid.configuration.pagerLayout !== 0 /*No Default*/) {
                 if (Plasmoid.configuration.pagerLayout === 1 /*Horizontal*/) {
                     rows = 1;
                 } else if (Plasmoid.configuration.pagerLayout === 2 /*Vertical*/) {
@@ -298,10 +292,9 @@ PlasmoidItem {
                 name: "vertical"
                 when: root.vertical
                 PropertyChanges {
-                    target: pagerItemGrid
-                    innerSpacing: effectiveColumns
-                    rowHeight: Math.floor(columnWidth / pagerItemSizeRatio)
-                    columnWidth: Math.floor((root.width - innerSpacing) / effectiveColumns)
+                    pagerItemGrid.innerSpacing: pagerItemGrid.effectiveColumns
+                    pagerItemGrid.rowHeight: Math.floor(pagerItemGrid.columnWidth / pagerItemGrid.pagerItemSizeRatio)
+                    pagerItemGrid.columnWidth: Math.floor((root.width - pagerItemGrid.innerSpacing) / pagerItemGrid.effectiveColumns)
                 }
             }
         ]
@@ -315,13 +308,20 @@ PlasmoidItem {
 
             model: pagerModel
 
-            PlasmaCore.ToolTipArea {
+            component DesktopDelegate: PlasmaCore.ToolTipArea {
+                required property string display
+                required property int index
+                required property var model
+
+                readonly property /*WindowModel*/ var tasksModel: model.TasksModel
+                readonly property string desktopId: (root.isActivityPager ? tasksModel?.activity : tasksModel?.virtualDesktop) ?? ""
+                readonly property bool isCurrent: (index === pagerModel.currentPage)
+            }
+
+            delegate: DesktopDelegate {
                 id: desktop
 
-                readonly property string desktopId: isActivityPager ? model.TasksModel.activity : model.TasksModel.virtualDesktop
-                readonly property bool active: (index === pagerModel.currentPage)
-
-                mainText: model.display
+                mainText: display
                 // our ToolTip has maximumLineCount of 8 which doesn't fit but QML doesn't
                 // respect that in RichText so we effectively can put in as much as we like :)
                 // it also gives us more flexibility when it comes to styling the <li>
@@ -337,12 +337,12 @@ PlasmoidItem {
                     let minimizedWindows = []
 
                     for (let i = 0, length = windowRectRepeater.count; i < length; ++i) {
-                        const window = windowRectRepeater.itemAt(i)
+                        const window = windowRectRepeater.itemAt(i) as WindowDelegate
                         if (window) {
                             if (window.minimized) {
-                                minimizedWindows.push(window.visibleName)
+                                minimizedWindows.push(window.display)
                             } else {
-                                visibleWindows.push(window.visibleName)
+                                visibleWindows.push(window.display)
                             }
                         }
                     }
@@ -350,8 +350,8 @@ PlasmoidItem {
                     if (visibleWindows.length === 1) {
                         text += visibleWindows[0]
                     } else if (visibleWindows.length > 1) {
-                        text += i18np("%1 Window:", "%1 Windows:", visibleWindows.length)
-                            + generateWindowList(visibleWindows)
+                        text += i18ncp("@info:tooltip start of list", "%1 Window:", "%1 Windows:", visibleWindows.length) // qmllint disable unqualified
+                            + root.generateWindowList(visibleWindows)
                     }
 
                     if (visibleWindows.length && minimizedWindows.length) {
@@ -362,8 +362,8 @@ PlasmoidItem {
                     }
 
                     if (minimizedWindows.length > 0) {
-                        text += i18np("%1 Minimized Window:", "%1 Minimized Windows:", minimizedWindows.length)
-                            + generateWindowList(minimizedWindows)
+                        text += i18ncp("@info:tooltip", "%1 Minimized Window:", "%1 Minimized Windows:", minimizedWindows.length) // qmllint disable unqualified
+                            + root.generateWindowList(minimizedWindows)
                     }
 
                     if (text.length) {
@@ -382,7 +382,7 @@ PlasmoidItem {
                     if ((desktopMouseArea.enabled && (desktopMouseArea.containsMouse || desktopMouseArea.activeFocus))
                             || (root.dragging && root.dragId === desktopId)) {
                         return "hover";
-                    } else if (active) {
+                    } else if (isCurrent) {
                         return "active";
                     } else {
                         return "normal";
@@ -415,11 +415,11 @@ PlasmoidItem {
                     preventStealing: true
 
                     onDragEnter: event => {
-                        root.dragSwitchDesktopIndex = index;
+                        root.dragSwitchDesktopIndex = desktop.index;
                     }
                     onDragLeave: event => {
                         // new onDragEnter may happen before an old onDragLeave
-                        if (root.dragSwitchDesktopIndex === index) {
+                        if (root.dragSwitchDesktopIndex === desktop.index) {
                             root.dragSwitchDesktopIndex = -1;
                         }
                     }
@@ -435,18 +435,21 @@ PlasmoidItem {
                     anchors.fill: parent
                     hoverEnabled: true
                     activeFocusOnTab: true
-                    property int prev: -1
                     onClicked: mouse => {
-                        const newPrev = pagerModel.currentPage;
-                        if (active && prev != -1) {
-                            pagerModel.changePage(prev);
+                        if (Plasmoid.configuration.currentDesktopSelected === 2) {
+                            const newPrev = pagerModel.currentPage;
+                            if (desktop.isCurrent && root.prevDesktop != -1) {
+                                pagerModel.changePage(root.prevDesktop);
+                            } else {
+                                pagerModel.changePage(desktop.index);
+                            }
+                            root.prevDesktop = newPrev;
                         } else {
-                            pagerModel.changePage(index);
+                            pagerModel.changePage(desktop.index);
                         }
-                        prev = newPrev;
                     }
-                    Accessible.name: Plasmoid.configuration.displayedText ? model.display : i18n("Desktop %1", (index + 1))
-                    Accessible.description: Plasmoid.configuration.displayedText ? i18nc("@info:tooltip %1 is the name of a virtual desktop or an activity", "Switch to %1", model.display) : i18nc("@info:tooltip %1 is the name of a virtual desktop or an activity", "Switch to %1", (index + 1))
+                    Accessible.name: Plasmoid.configuration.displayedText ? desktop.display : i18nc("@info:whatsthis Accessible name for pager section", "Desktop %1", (desktop.index + 1)) // qmllint disable unqualified
+                    Accessible.description: Plasmoid.configuration.displayedText ? i18nc("@info:tooltip %1 is the name of a virtual desktop or an activity", "Switch to %1", desktop.display) : i18nc("@info:tooltip %1 is the name of a virtual desktop or an activity", "Switch to %1", (desktop.index + 1)) // qmllint disable unqualified
                     Accessible.role: Accessible.Button
                     Keys.onPressed: event => {
                         switch (event.key) {
@@ -454,7 +457,7 @@ PlasmoidItem {
                         case Qt.Key_Enter:
                         case Qt.Key_Return:
                         case Qt.Key_Select:
-                            pagerModel.changePage(index);
+                            pagerModel.changePage(desktop.index);
                             break;
                         }
                     }
@@ -472,37 +475,45 @@ PlasmoidItem {
                     Repeater {
                         id: windowRectRepeater
 
-                        model: TasksModel
+                        model: desktop.tasksModel
 
                         onCountChanged: desktop.updateSubTextIfNeeded()
 
-                        Rectangle {
+                        component WindowDelegate: Rectangle {
+                            required property string display
+                            required property var model
+                            required property var decoration
+                            required property int index
+
+                            // These can't be required due to their role names
+                            readonly property rect geometry: model.Geometry
+                            readonly property bool minimized: model.IsMinimized
+                            readonly property bool isActive: model.IsActive
+                            readonly property int stackingOrder: model.StackingOrder
+                        }
+
+                        delegate: WindowDelegate {
                             id: windowRect
 
-                            z: 1 + model.StackingOrder
-
-                            readonly property rect geometry: model.Geometry
-                            readonly property string visibleName: model.display
-                            readonly property bool minimized: model.IsMinimized
-
                             onMinimizedChanged: desktop.updateSubTextIfNeeded()
-                            onVisibleNameChanged: desktop.updateSubTextIfNeeded()
+                            onDisplayChanged: desktop.updateSubTextIfNeeded()
 
+                            z: 1 + stackingOrder
                             /* since we move clipRect with 1, move it back */
                             x: Math.round(geometry.x * pagerItemGrid.widthScaleFactor) - 1
                             y: Math.round(geometry.y * pagerItemGrid.heightScaleFactor) - 1
                             width: Math.round(geometry.width * pagerItemGrid.widthScaleFactor)
                             height: Math.round(geometry.height * pagerItemGrid.heightScaleFactor)
-                            visible: Plasmoid.configuration.showWindowOutlines && !model.IsMinimized
+                            visible: Plasmoid.configuration.showWindowOutlines && !minimized
                             color: {
-                                if (desktop.active) {
-                                    if (model.IsActive) {
+                                if (desktop.isCurrent) {
+                                    if (isActive) {
                                         return root.windowActiveOnActiveDesktopColor;
                                     } else {
                                         return root.windowInactiveOnActiveDesktopColor;
                                     }
                                 } else {
-                                    if (model.IsActive) {
+                                    if (isActive) {
                                         return root.windowActiveColor;
                                     } else {
                                         return root.windowInactiveColor;
@@ -511,13 +522,14 @@ PlasmoidItem {
                             }
 
                             border.width: 1
-                            border.color: model.IsActive
+                            border.color: isActive
                                 ? root.windowActiveBorderColor
                                 : root.windowInactiveBorderColor
 
                             MouseArea {
                                 id: windowMouseArea
                                 anchors.fill: parent
+                                propagateComposedEvents: true
 
                                 drag.target: windowRect
                                 drag.threshold: 1
@@ -541,16 +553,24 @@ PlasmoidItem {
                                     }
                                 }
 
+                                onClicked: (mouse) => {
+                                    if (Plasmoid.configuration.currentDesktopSelected === 2) {
+                                        mouse.accepted = false
+                                    } else {
+                                        mouse.accepted = true
+                                    }
+                                }
+
                                 onReleased: mouse => {
                                     if (root.dragging) {
                                         windowRect.visible = false;
                                         const windowCenter = Qt.point(windowRect.x + windowRect.width / 2, windowRect.y + windowRect.height / 2);
-                                        const pagerItem = pagerItemGrid.childAt(windowCenter.x, windowCenter.y);
+                                        const pagerItem = pagerItemGrid.childAt(windowCenter.x, windowCenter.y) as DesktopDelegate;
 
                                         if (pagerItem) {
                                             const relativeTopLeft = root.mapToItem(pagerItem, windowRect.x, windowRect.y);
 
-                                            const modelIndex = windowRectRepeater.model.index(index, 0)
+                                            const modelIndex = windowRectRepeater.model.index(windowRect.index, 0)
                                             pagerModel.moveWindow(modelIndex, relativeTopLeft.x, relativeTopLeft.y,
                                                 pagerItem.desktopId, root.dragId,
                                                 pagerItemGrid.widthScaleFactor, pagerItemGrid.heightScaleFactor);
@@ -559,18 +579,20 @@ PlasmoidItem {
                                         // Will reset the model, destroying the reparented drag delegate that
                                         // is no longer bound to model.Geometry.
                                         root.dragging = false;
+
                                         pagerModel.refresh();
-                                    } else {
+                                    } else if (Plasmoid.configuration.currentDesktopSelected !== 2) {
                                         // When there is no dragging (just a click), the event is passed
                                         // to the desktop MouseArea.
                                         desktopMouseArea.clicked(mouse);
+                                        pagerModel.refresh();
                                     }
                                 }
                             }
 
                             Component.onCompleted: {
                                 if (Plasmoid.configuration.showWindowIcons) {
-                                    windowIconComponent.createObject(windowRect, { model });
+                                    windowIconComponent.createObject(windowRect, { decoration: windowRect.decoration });
                                 }
                             }
                         }
@@ -579,7 +601,7 @@ PlasmoidItem {
 
                 Component.onCompleted: {
                     if (Plasmoid.configuration.displayedText < 2) {
-                        desktopLabelComponent.createObject(desktop, { index, model, desktopFrame });
+                        desktopLabelComponent.createObject(desktop, { index, display: desktop.display, desktopFrame });
                     }
                 }
 
@@ -590,33 +612,38 @@ PlasmoidItem {
 
     Plasmoid.contextualActions: [
         PlasmaCore.Action {
-            text: i18nc("@action:inmenu widget context menu", "Show Activity Manager")
+            text: i18nc("@action:inmenu widget context menu", "Show Activity Manager") // qmllint disable unqualified
             icon.name: "activities"
             visible: root.isActivityPager
             onTriggered: ActivitySwitcher.Backend.toggleActivityManager()
         },
         PlasmaCore.Action {
-            text: i18nc("@action:inmenu widget context menu", "Add Virtual Desktop")
+            text: i18nc("@action:inmenu widget context menu", "Add Virtual Desktop") // qmllint disable unqualified
             icon.name: "list-add"
             visible: !root.isActivityPager && KConfig.KAuthorized.authorize("kcm_kwin_virtualdesktops")
             onTriggered: pagerModel.addDesktop()
         },
         PlasmaCore.Action {
-            text: i18nc("@action:inmenu widget context menu", "Remove Virtual Desktop")
+            text: i18nc("@action:inmenu widget context menu", "Remove Virtual Desktop") // qmllint disable unqualified
             icon.name: "list-remove"
             visible: !root.isActivityPager && KConfig.KAuthorized.authorize("kcm_kwin_virtualdesktops")
             enabled: repeater.count > 1
             onTriggered: pagerModel.removeDesktop()
         },
         PlasmaCore.Action {
-            text: i18nc("@action:inmenu widget context menu", "&Configure Activities…")
+            text: i18nc("@action:inmenu widget context menu", "&Configure Activities…") // qmllint disable unqualified
             visible: root.isActivityPager && KConfig.KAuthorized.authorize("kcm_activities")
             onTriggered: KCM.KCMLauncher.openSystemSettings("kcm_activities")
         },
         PlasmaCore.Action {
-            text: i18nc("@action:inmenu widget context menu", "Configure Virtual Desktops…")
+            text: i18nc("@action:inmenu widget context menu", "Configure Virtual Desktops…") // qmllint disable unqualified
             visible: !root.isActivityPager && KConfig.KAuthorized.authorize("kcm_kwin_virtualdesktops")
-            onTriggered: KCM.KCMLauncher.openSystemSettings("kcm_kwin_virtualdesktops")
+            onTriggered: {
+                if (Qt.platform.pluginName.includes("wayland"))
+                    KCM.KCMLauncher.openSystemSettings("kcm_kwin_virtualdesktops")
+                else
+                    KCM.KCMLauncher.openSystemSettings("kcm_kwin_virtualdesktops_x11")
+            }
         }
     ]
 }

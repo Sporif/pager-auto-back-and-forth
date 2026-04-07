@@ -36,6 +36,7 @@
         <choices>
             <choice name="DoNothing"/>
             <choice name="ShowDesktop"/>
+            <choice name="SwitchToPrevious"/>
         </choices>
         <default>0</default>
     </entry>

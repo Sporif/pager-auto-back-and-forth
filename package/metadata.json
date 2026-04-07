@@ -3,17 +3,23 @@
     "KPlugin": {
         "Authors": [
             {
+                "Email": "plasma-devel@kde.org",
+                "Name": "The Plasma Team"
+            },
+            {
                 "Email": "github@mail.sporif.com",
                 "Name": "Sporif"
             }
         ],
+        "BugReportUrl": "https://github.com/Sporif/pager-auto-back-and-forth/issues",
         "Category": "Windows and Tasks",
-        "Description": "Switch between virtual desktops, with an option for automatic back-and-forth when clicking on the current workspace",
-        "Icon": "user-desktop",
-        "Id": "com.github.sporif.plasma.pager-auto-back-and-forth",
+        "Description": "Switch between virtual desktops, with an option for automatic back-and-forth when clicking on the current desktop",
+        "EnabledByDefault": false,
+        "Icon": "virtual-desktops",
+        "Id": "com.sporif.pager",
         "License": "GPL-2.0+",
-        "Name": "Pager (with auto back-and-forth)",
-        "Version": "1",
+        "Name": "Pager (auto back-and-forth)",
+        "Version": "1.0.0",
         "Website": "https://userbase.kde.org/Plasma/Pager"
     },
     "X-Plasma-API-Minimum-Version": "6.0",
