@@ -32,7 +32,6 @@ target_include_directories(pager PRIVATE
 target_link_libraries(pager
     PRIVATE
         KF6::WindowSystem
-        Plasma::Plasma
         Plasma::Activities
         PW::LibTaskManager
         Qt::Core
